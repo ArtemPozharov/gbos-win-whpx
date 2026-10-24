@@ -115,10 +115,42 @@ if (Test-Path $vnniKo) {
 }
 
 # 5. Build Image
-Write-Host "`n[5/6] Assembling base disk and initrd..." -ForegroundColor Yellow
+Write-Host "`n[5/6] Verifying image assets and assembling base disk..." -ForegroundColor Yellow
 if (Test-Path "prepared\base.qcow2") {
     Write-Host "   prepared\base.qcow2 is already assembled." -ForegroundColor Green
 } else {
+    $existingRaw = Get-ChildItem "downloads" -Filter "*ruby*.raw" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $existingRaw) {
+        $existingRaw = Get-ChildItem "downloads" -Filter "*recovery*.raw" -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+
+    if (-not $existingRaw -and -not $SkipDownload) {
+        $zipTarget = Join-Path $PSScriptRoot "downloads\ruby-recovery.zip"
+        if (-not (Test-Path $zipTarget)) {
+            Write-Host "   Downloading official Googlebook OS recovery (~7.8 GB)..." -ForegroundColor Cyan
+            Write-Host "   URL: $RecoveryUrl" -ForegroundColor Gray
+            if (Get-Command "curl.exe" -ErrorAction SilentlyContinue) {
+                & curl.exe -L -# -o $zipTarget $RecoveryUrl
+            } else {
+                Invoke-WebRequest -Uri $RecoveryUrl -OutFile $zipTarget
+            }
+        }
+
+        Write-Host "   Extracting recovery archive into downloads/..." -ForegroundColor Cyan
+        if (Get-Command "tar.exe" -ErrorAction SilentlyContinue) {
+            & tar.exe -xf $zipTarget -C "downloads"
+        } else {
+            Expand-Archive -Path $zipTarget -DestinationPath "downloads" -Force
+        }
+
+        $binFile = Get-ChildItem "downloads" -Filter "chromeos_*.bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($binFile) {
+            $rawTarget = Join-Path $PSScriptRoot "downloads\ruby-recovery.raw"
+            Rename-Item -Path $binFile.FullName -NewName $rawTarget -Force
+            Write-Host "   Recovery image extracted: $rawTarget" -ForegroundColor Green
+        }
+    }
+
     Write-Host "   Assembling disk from official recovery image..." -ForegroundColor Gray
     & python "scripts\prepare_image.py"
 }
