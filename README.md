@@ -56,7 +56,7 @@ dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart
 
 ### Step 2: Clone the Repository & Run Installer
 ```powershell
-git clone https://github.com/YOUR_USERNAME/gbos-win-whpx.git
+git clone https://github.com/ArtemPozharov/gbos-win-whpx.git
 cd gbos-win-whpx
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
