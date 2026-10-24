@@ -1,0 +1,28 @@
+# Large disk images and downloads
+downloads/
+extracted/
+build/
+prepared/base.qcow2
+prepared/userdata.qcow2
+prepared/logs/
+*.qcow2
+*.img
+*.bin
+*.raw
+*.zip
+*.tar
+*.iso
+
+# QEMU local binaries (downloaded by installer)
+qemu/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary and editor files
+.idea/
+.vscode/
+*.swp
+*.bak
