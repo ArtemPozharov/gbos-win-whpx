@@ -11,6 +11,8 @@
 [CmdletBinding()]
 param(
     [switch]$SkipDownload,
+    [switch]$BuildFromSource,
+    [string]$RecoverySha256 = "",
     [string]$RecoveryUrl = "https://dl.google.com/dl/edgedl/chromeos/recovery/chromeos_16452.271.0_ruby_recovery_stable-channel_mp-v2.bin.zip"
 )
 
@@ -107,11 +109,13 @@ if (-not (Test-Path $qemuImg)) {
 # 4. In-flight patches and Assets
 Write-Host "`n[4/6] Verifying patches (AVX-VNNI AMD emulator, SELinux, Colors)..." -ForegroundColor Yellow
 $vnniKo = Join-Path $PSScriptRoot "patches\avx_vnni\avx_vnni_emu.ko"
-if (Test-Path $vnniKo) {
-    Write-Host "   Prebuilt AVX-VNNI kernel module present (AMD Zen 1-4 & pre-12th Gen Intel support)." -ForegroundColor Green
+if ((Test-Path $vnniKo) -and -not $BuildFromSource) {
+    $koHash = (Get-FileHash $vnniKo -Algorithm SHA256).Hash
+    Write-Host "   Using verified AVX-VNNI kernel module (SHA-256: $koHash)." -ForegroundColor Green
 } else {
-    Write-Host "   Compiling avx_vnni_emu.ko..." -ForegroundColor Gray
+    Write-Host "   Compiling avx_vnni_emu.ko from source (requires zig compiler)..." -ForegroundColor Gray
     & python "patches\avx_vnni\build_avx_vnni_ko.py"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Building avx_vnni_emu.ko failed."; exit 1 }
 }
 
 # 5. Build Image
@@ -136,6 +140,18 @@ if (Test-Path "prepared\base.qcow2") {
             }
         }
 
+        $zipHash = (Get-FileHash $zipTarget -Algorithm SHA256).Hash
+        if ($RecoverySha256) {
+            if ($zipHash -ne $RecoverySha256.ToUpper()) {
+                Remove-Item $zipTarget -Force
+                Write-Error "SHA-256 mismatch for recovery zip. Expected $RecoverySha256, got $zipHash. File deleted."
+                exit 1
+            }
+            Write-Host "   Recovery zip SHA-256 verified." -ForegroundColor Green
+        } else {
+            Write-Host "   Recovery zip SHA-256: $zipHash" -ForegroundColor Gray
+        }
+
         Write-Host "   Extracting recovery archive into downloads/..." -ForegroundColor Cyan
         if (Get-Command "tar.exe" -ErrorAction SilentlyContinue) {
             & tar.exe -xf $zipTarget -C "downloads"
@@ -153,12 +169,14 @@ if (Test-Path "prepared\base.qcow2") {
 
     Write-Host "   Assembling disk from official recovery image..." -ForegroundColor Gray
     & python "scripts\prepare_image.py"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Disk assembly failed."; exit 1 }
 }
 
 # Apply color fix
 if (Test-Path "prepared\initrd.gz") {
     Write-Host "   Applying virtio-gpu true-color channel mapping patch..." -ForegroundColor Gray
     & python "patches\color_fix\patch_color_format.py" "prepared\initrd.gz" "prepared\vm.json"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Color patch failed."; exit 1 }
 }
 
 # Ensure userdata
