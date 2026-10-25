@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import stat
 import struct
@@ -21,6 +22,33 @@ DOWNLOADS = ROOT / 'downloads'
 
 QEMU = ROOT / 'qemu' / 'qemu-system-x86_64.exe'
 QEMU_IMG = ROOT / 'qemu' / 'qemu-img.exe'
+
+
+def extract_vbmeta_info(recovery_raw: pathlib.Path) -> tuple[int, str] | None:
+    """Parse GPT partition table directly from recovery.raw, extract vbmeta_a and compute AVB digest."""
+    try:
+        with recovery_raw.open('rb') as f:
+            f.seek(512)
+            hdr = f.read(512)
+            if hdr[:8] != b'EFI PART':
+                return None
+            tlba, count, esz = struct.unpack_from('<QII', hdr, 72)
+            f.seek(tlba * 512)
+            table = f.read(count * esz)
+            for i in range(count):
+                entry = table[i * esz:(i + 1) * esz]
+                name = entry[56:128].decode('utf-16le', errors='ignore').rstrip('\0')
+                if name == 'vbmeta_a':
+                    start_lba, end_lba = struct.unpack_from('<QQ', entry, 32)
+                    f.seek(start_lba * 512)
+                    vb = f.read((end_lba - start_lba + 1) * 512)
+                    if vb[:4] == b'AVB0':
+                        vs = 256 + int.from_bytes(vb[12:20], 'big') + int.from_bytes(vb[20:28], 'big')
+                        digest = hashlib.sha256(vb[:vs]).hexdigest()
+                        return vs, digest
+    except Exception as e:
+        print(f"Warning: Could not parse GPT/AVB from {recovery_raw}: {e}")
+    return None
 
 
 def cpio_entry(name: str, body: bytes, ino: int, mode: int = 0o100644) -> bytes:
@@ -90,6 +118,20 @@ def main():
     ruby_raw = next(DOWNLOADS.glob('*ruby*.raw'), None) or next(DOWNLOADS.glob('*recovery*.raw'), None) or next(DOWNLOADS.glob('*.bin'), None)
     if ruby_raw and ruby_raw.exists():
         print(f"Found recovery image: {ruby_raw.name} ({ruby_raw.stat().st_size / (1024**3):.2f} GiB)")
+        avb_info = extract_vbmeta_info(ruby_raw)
+        if avb_info:
+            vs, digest = avb_info
+            if target_cmdline.is_file():
+                cmdline = target_cmdline.read_text(encoding='utf-8')
+                cmdline = re.sub(r'androidboot\.vbmeta\.size=\d+', f'androidboot.vbmeta.size={vs}', cmdline)
+                cmdline = re.sub(r'androidboot\.vbmeta\.digest=[a-f0-9]+', f'androidboot.vbmeta.digest={digest}', cmdline)
+                target_cmdline.write_text(cmdline, encoding='utf-8')
+                new_cmdline_sha = hashlib.sha256(cmdline.encode('utf-8')).hexdigest()
+                if target_manifest.is_file():
+                    spec = json.loads(target_manifest.read_text(encoding='utf-8'))
+                    spec['assets']['cmdline']['sha256'] = new_cmdline_sha
+                    target_manifest.write_text(json.dumps(spec, indent=2) + '\n', encoding='utf-8')
+                print(f"Dynamically generated cmdline.txt for AVB (size={vs}, digest={digest[:16]}...)")
         print("Note: To assemble base.qcow2 from recovery raw, disk assembly tools are required.")
     else:
         print("No base.qcow2 or recovery raw found in downloads/.")

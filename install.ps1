@@ -10,6 +10,7 @@
 
 [CmdletBinding()]
 param(
+    [switch]$Latest,
     [switch]$SkipDownload,
     [switch]$SkipQemuInstall,
     [switch]$BuildFromSource,
@@ -19,6 +20,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
+
+if ($Latest) {
+    Write-Host "Fetching latest Googlebook OS release from Google Recovery API..." -ForegroundColor Cyan
+    try {
+        $apiJson = & python -c "import urllib.request, json; data=json.loads(urllib.request.urlopen('https://dl.google.com/dl/edgedl/device/recovery/production_recovery.json', timeout=15).read()); r=next(x for x in data if x.get('device')=='ruby'); print(json.dumps({'url': r['url'], 'build': r['buildidentifier'], 'date': r['dateupdated']}))"
+        $latestObj = $apiJson | ConvertFrom-Json
+        if ($latestObj -and $latestObj.url) {
+            $RecoveryUrl = $latestObj.url
+            $RecoverySha256 = ""
+            Write-Host "   Found latest official release: $($latestObj.build) (Released: $($latestObj.date))" -ForegroundColor Green
+            Write-Host "   Target URL: $RecoveryUrl" -ForegroundColor Gray
+        }
+    } catch {
+        Write-Warning "Could not query Google Recovery API. Falling back to default release 16452207: $_"
+    }
+}
 
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host "   Googlebook OS (Android 17) - Windows WHPX Auto-Installer    " -ForegroundColor Cyan
@@ -42,14 +59,18 @@ $pyVer = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_
 Write-Host "   Python $pyVer detected: $($pythonCmd.Source)" -ForegroundColor Green
 
 # Check WHPX (Windows Hypervisor Platform)
-$whpxFeature = Get-WindowsOptionalFeature -Online -FeatureName "HypervisorPlatform" -ErrorAction SilentlyContinue
-if ($whpxFeature -and $whpxFeature.State -ne "Enabled") {
-    Write-Warning "Windows Hypervisor Platform (WHPX) is currently disabled."
-    Write-Host "   To enable WHPX, run in an Administrator PowerShell:" -ForegroundColor Gray
-    Write-Host "   dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart" -ForegroundColor Cyan
-    Write-Host "   and restart your PC." -ForegroundColor Gray
-} else {
-    Write-Host "   Windows Hypervisor Platform (WHPX): Enabled" -ForegroundColor Green
+try {
+    $whpxFeature = Get-WindowsOptionalFeature -Online -FeatureName "HypervisorPlatform" -ErrorAction SilentlyContinue
+    if ($whpxFeature -and $whpxFeature.State -ne "Enabled") {
+        Write-Warning "Windows Hypervisor Platform (WHPX) is currently disabled."
+        Write-Host "   To enable WHPX, run in an Administrator PowerShell:" -ForegroundColor Gray
+        Write-Host "   dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart" -ForegroundColor Cyan
+        Write-Host "   and restart your PC." -ForegroundColor Gray
+    } else {
+        Write-Host "   Windows Hypervisor Platform (WHPX): Enabled" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "   Windows Hypervisor Platform (WHPX): Check skipped (requires admin to query)" -ForegroundColor Gray
 }
 
 # 2. Directory Structure

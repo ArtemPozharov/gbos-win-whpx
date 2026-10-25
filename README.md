@@ -60,7 +60,11 @@ dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart
 ```powershell
 git clone https://github.com/ArtemPozharov/gbos-win-whpx.git
 cd gbos-win-whpx
+# Standard setup with verified reference build (16452207):
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+
+# OR automatically fetch the latest release from Google Recovery API (16658739+):
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Latest
 ```
 The automated script will:
 1. Verify system virtualization requirements.
