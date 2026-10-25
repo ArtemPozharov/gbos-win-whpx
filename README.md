@@ -2,6 +2,8 @@
 
 Run the real **Googlebook OS** (Lenovo Googlebook "Ruby" build, Android 17 desktop) inside a hardware-accelerated QEMU virtual machine under **Windows Hypervisor Platform (WHPX)** on any modern x86_64 PC (**AMD Ryzen & Intel**).
 
+> **Status:** work in progress. `scripts/prepare_image.py` does not yet assemble the disk, the SELinux rules are not applied automatically, and `prepared/vm.json` is not generated, so the VM cannot be started from this repository alone. The prebuilt `avx_vnni_emu.ko` is not verified against its source; `install.ps1` ignores it unless run with `-TrustPrebuiltModule`. Run it only in a disposable VM.
+
 > **Disclaimer:** This project is independent research and is not affiliated with, endorsed by, or sponsored by Google LLC or Lenovo. Google, Android, Googlebook, and related marks are trademarks of Google LLC.
 
 ---
@@ -62,9 +64,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 The automated script will:
 1. Verify system virtualization requirements.
-2. Download the official Lenovo Ruby recovery image and Android Cuttlefish donor components directly from official sources.
-3. Apply the AVX-VNNI emulator, SELinux policy, and color fix patches.
-4. Assemble the QCOW2 virtual disk image.
+2. Download the official Lenovo Ruby recovery image from `dl.google.com` (pass `-RecoverySha256 <hash>` to verify it; otherwise the hash is printed).
+3. Build the AVX-VNNI emulator from source (or use the prebuilt one with `-TrustPrebuiltModule`) and apply the color fix patch (requires a matching `vm.json`).
+4. Stop with an error if disk assembly is not available (currently the case).
 
 ### Step 3: Launch Googlebook OS!
 Double-click `Start-Googlebook.bat` or run:
@@ -113,14 +115,13 @@ gbos-win-whpx/
 ├── Start-Googlebook.ps1      # Native PowerShell launcher script
 ├── Reset-Data.bat            # Factory data reset utility
 ├── launcher/
-│   ├── launch_googlebook.py  # Python WHPX launcher with host auto-detection
-│   └── vm.json               # Virtual machine image manifest
+│   └── launch_googlebook.py  # Python WHPX launcher with host auto-detection
 ├── patches/
 │   ├── avx_vnni/             # AVX-VNNI kernel emulator C source & builder
 │   ├── color_fix/            # virtio-gpu DRM format translation patch
-│   └── selinux/              # Vendor SELinux policy rules
+│   └── selinux/              # Vendor SELinux policy rules (not applied automatically)
 └── scripts/
-    └── prepare_image.py      # Recovery unpacker and base disk builder
+    └── prepare_image.py      # Stub: base disk builder not implemented yet
 ```
 
 ---

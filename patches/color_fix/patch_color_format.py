@@ -7,13 +7,22 @@ import pathlib
 import sys
 
 def patch_initrd_colors(initrd_path: pathlib.Path, vm_json_path: pathlib.Path | None = None) -> str:
-    raw = bytearray(gzip.decompress(initrd_path.read_bytes()))
+    data = initrd_path.read_bytes()
+    if vm_json_path and vm_json_path.exists():
+        expected = json.loads(vm_json_path.read_text(encoding='utf-8'))['assets']['initrd'].get('sha256')
+        if expected and hashlib.sha256(data).hexdigest() != expected:
+            raise ValueError("initrd.gz does not match the SHA-256 in vm.json; refusing to patch")
+    raw = bytearray(gzip.decompress(data))
     pos = raw.find(bytes.fromhex('81ff415832347f3681ff415232347454'))
     if pos == -1:
         raise ValueError("Signature for virtio_gpu_translate_format not found in initrd.gz")
 
-    p1 = raw.find(bytes.fromhex('81ff415232347454b8'), pos) + 9
-    p2 = raw.find(bytes.fromhex('b8030000002ee900000000b8'), pos) + 12
+    p1 = raw.find(bytes.fromhex('81ff415232347454b8'), pos)
+    p2 = raw.find(bytes.fromhex('b8030000002ee900000000b8'), pos)
+    if p1 == -1 or p2 == -1:
+        raise ValueError("Patch signatures not found in initrd.gz; refusing to patch")
+    p1 += 9
+    p2 += 12
 
     # Map XR24 and AR24 to 0x43 (VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM -> PIXMAN_a8b8g8r8)
     # Byte 0=Red, Byte 1=Green, Byte 2=Blue, Byte 3=Alpha. Pure black (0,0,0,255) stays black.

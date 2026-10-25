@@ -66,7 +66,9 @@ def main():
         sys.exit(1)
 
     print(f"Found recovery image: {ruby_raw.name}")
-    print("Base image build pipeline ready.")
+    print("Error: disk assembly is not implemented in this repository.")
+    print("prepared/base.qcow2, kernel, initrd and vm.json must be created separately.")
+    sys.exit(1)
 
 if __name__ == '__main__':
     main()
