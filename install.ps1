@@ -37,6 +37,11 @@ if ($Latest) {
     }
 }
 
+if (-not ($RecoveryUrl -match '^https://')) {
+    Write-Error "Security error: RecoveryUrl must use a secure HTTPS protocol ($RecoveryUrl)."
+    exit 1
+}
+
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host "   Googlebook OS (Android 17) - Windows WHPX Auto-Installer    " -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
@@ -208,7 +213,13 @@ if (Test-Path "prepared\base.qcow2") {
             Expand-Archive -Path $zipTarget -DestinationPath "downloads" -Force
         }
 
-        $binFile = Get-ChildItem "downloads" -Filter "*.bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $binFile = Get-ChildItem "downloads" -Filter "*android-desktop*.bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $binFile) {
+            $binFile = Get-ChildItem "downloads" -Filter "*recovery*.bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
+        if (-not $binFile) {
+            $binFile = Get-ChildItem "downloads" -Filter "*.bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
         if ($binFile) {
             $rawTarget = Join-Path $PSScriptRoot "downloads\ruby-recovery.raw"
             Move-Item -Path $binFile.FullName -Destination $rawTarget -Force
@@ -230,8 +241,12 @@ if (Test-Path "prepared\initrd.gz") {
 
 # Ensure userdata
 if (-not (Test-Path "prepared\userdata.qcow2") -and (Test-Path "prepared\base.qcow2")) {
-    Write-Host "   Creating disposable/persistent userdata.qcow2..." -ForegroundColor Gray
-    & $qemuImg create -f qcow2 -F qcow2 -b "base.qcow2" "prepared\userdata.qcow2"
+    if ($qemuImg -and (Test-Path $qemuImg)) {
+        Write-Host "   Creating disposable/persistent userdata.qcow2..." -ForegroundColor Gray
+        & $qemuImg create -f qcow2 -F qcow2 -b "base.qcow2" "prepared\userdata.qcow2"
+    } else {
+        Write-Warning "qemu-img not found. Skipping initial userdata.qcow2 creation (it will be created automatically on first launch)."
+    }
 }
 
 Write-Host "`n[6/6] Finalizing configuration..." -ForegroundColor Yellow
