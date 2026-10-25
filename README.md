@@ -1,6 +1,6 @@
 # Googlebook OS (Android 17) on Windows 11 (WHPX)
 
-Run the real **Googlebook OS** (Lenovo ThinkPad "Ruby" build, Android 17 desktop) inside a hardware-accelerated QEMU virtual machine under **Windows Hypervisor Platform (WHPX)** on any modern x86_64 PC (**AMD Ryzen & Intel**).
+Run the real **Googlebook OS** (Lenovo Googlebook "Ruby" build, Android 17 desktop) inside a hardware-accelerated QEMU virtual machine under **Windows Hypervisor Platform (WHPX)** on any modern x86_64 PC (**AMD Ryzen & Intel**).
 
 > **Disclaimer:** This project is independent research and is not affiliated with, endorsed by, or sponsored by Google LLC or Lenovo. Google, Android, Googlebook, and related marks are trademarks of Google LLC.
 
@@ -56,7 +56,7 @@ dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart
 
 ### Step 2: Clone the Repository & Run Installer
 ```powershell
-git clone https://github.com/YOUR_USERNAME/gbos-win-whpx.git
+git clone https://github.com/ArtemPozharov/gbos-win-whpx.git
 cd gbos-win-whpx
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
