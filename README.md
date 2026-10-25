@@ -8,7 +8,7 @@ Run the real **Googlebook OS** (Lenovo Googlebook "Ruby" build, Android 17 deskt
 
 ## 🌟 Key Breakthroughs in this Project
 
-Previous community efforts (such as `gbrunch` and `gbos-vm`) were either restricted to Linux/Intel or exclusively designed for Apple Silicon Macs (ARM64 with Metal). Running Googlebook OS on Windows with AMD Ryzen CPUs previously failed with multiple blocking crashes. This project introduces several key fixes:
+Previous community efforts (such as `gbrunch` and `gbos-vm`) were either restricted to Linux/Intel or exclusively designed for Apple Silicon Macs (ARM64 with Metal). Running Googlebook OS on Windows previously failed with fatal crashes on both AMD Ryzen (Zen 1–4) and older Intel Core processors (11th Gen and older) due to missing VEX-encoded AVX-VNNI instructions. This project introduces several key fixes:
 
 1. **Pure-GPR Kernel `#UD` AVX-VNNI Trap Emulator (`avx_vnni_emu.ko`)**:
    * *The Problem:* Googlebook OS userspace binaries (`libz.so`, `libcrypto_httpengine.so`) are compiled for Intel Core Ultra with VEX-encoded `AVX-VNNI` (`vpdpbusd`, `vpdpwssd`). AMD Zen 1–4 processors and older Intel CPUs (11th Gen and older) do not have this instruction set, resulting in immediate fatal `SIGILL` (Invalid Opcode) crashes.
