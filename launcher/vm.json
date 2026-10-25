@@ -1,0 +1,21 @@
+{
+  "profile_version": 1,
+  "assets": {
+    "kernel": {
+      "file": "kernel",
+      "sha256": "b28decced5d617030d0f57735c1d351ba9e2f48286917641617474302359ffaa"
+    },
+    "initrd": {
+      "file": "initrd.gz",
+      "sha256": "5635bec15473f66cd34848ed6c996f89fd5e754ea586aff891564b8a75cd3a29"
+    },
+    "cmdline": {
+      "file": "cmdline.txt",
+      "sha256": "87a5fcf23a344ce926c1ad1931e4f2e073dc1598cc28243f39c8593819bd2036"
+    },
+    "disk": {
+      "file": "base.qcow2"
+    }
+  },
+  "status": "ready"
+}

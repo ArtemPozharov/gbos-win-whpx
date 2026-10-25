@@ -88,6 +88,15 @@ def check_regular_file(path: Path) -> Path:
 
 
 def load_manifest(manifest_path: Path):
+    if not manifest_path.is_file():
+        fallback = ROOT / 'launcher' / 'vm.json'
+        if fallback.is_file():
+            manifest_path = fallback
+        else:
+            raise FileNotFoundError(
+                f'Manifest not found: {manifest_path}\n'
+                f'Please run install.ps1 first to assemble VM assets into prepared/.'
+            )
     manifest_path = check_regular_file(manifest_path)
     spec = json.loads(manifest_path.read_text(encoding='utf-8'))
     if spec.get('profile_version') != 1:
@@ -95,7 +104,22 @@ def load_manifest(manifest_path: Path):
     assets = {}
     for key in ('kernel', 'initrd', 'cmdline', 'disk'):
         entry = spec['assets'][key]
-        fpath = check_regular_file(manifest_path.parent / entry['file'])
+        candidates = [
+            manifest_path.parent / entry['file'],
+            ROOT / 'prepared' / entry['file'],
+            ROOT / 'launcher' / entry['file'],
+            ROOT.parent / 'gbos-win-vm' / 'prepared' / entry['file'],
+        ]
+        fpath = None
+        for cand in candidates:
+            if cand.is_file():
+                fpath = cand.resolve()
+                break
+        if not fpath:
+            raise FileNotFoundError(
+                f"Required VM asset '{key}' ({entry['file']}) not found in prepared/.\n"
+                f"Please ensure install.ps1 has finished preparing all VM assets."
+            )
         if key != 'disk':
             with fpath.open('rb') as stream:
                 digest = hashlib.file_digest(stream, 'sha256').hexdigest()

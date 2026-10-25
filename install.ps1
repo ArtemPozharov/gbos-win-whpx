@@ -11,9 +11,10 @@
 [CmdletBinding()]
 param(
     [switch]$SkipDownload,
+    [switch]$SkipQemuInstall,
     [switch]$BuildFromSource,
-    [string]$RecoverySha256 = "",
-    [string]$RecoveryUrl = "https://dl.google.com/dl/edgedl/chromeos/recovery/chromeos_16452.271.0_ruby_recovery_stable-channel_mp-v2.bin.zip"
+    [string]$RecoverySha256 = "3C4DC7F636F29A1207E71D001FD2864AA20CE8354FAECD2EF1AE47582B977F6C",
+    [string]$RecoveryUrl = "https://dl.google.com/device/recovery/ruby-user/16452207/recovery.zip"
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,17 +79,22 @@ if (-not (Test-Path $qemuBin)) {
         $qemuBin = "$PSScriptRoot\..\gbos-win-vm\qemu\qemu-system-x86_64.exe"
         Write-Host "   Found development sibling QEMU: $qemuBin" -ForegroundColor Green
     } else {
-        Write-Host "   QEMU not found in PATH or project directory." -ForegroundColor Yellow
-        $winget = Get-Command "winget" -ErrorAction SilentlyContinue
-        if ($winget) {
-            Write-Host "   Installing QEMU via Windows Package Manager (winget)..." -ForegroundColor Cyan
-            & winget install -e --id SoftwareFreedomConservancy.QEMU --accept-source-agreements --accept-package-agreements
-            if (Test-Path "C:\Program Files\qemu\qemu-system-x86_64.exe") {
-                $qemuBin = "C:\Program Files\qemu\qemu-system-x86_64.exe"
-                Write-Host "   QEMU installed successfully!" -ForegroundColor Green
-            }
+        if ($SkipQemuInstall) {
+            Write-Warning "QEMU not found and -SkipQemuInstall was specified. Please install QEMU manually and add to PATH."
         } else {
-            Write-Warning "winget not found. Please install QEMU from https://qemu.weilnetz.de/w64/ or place QEMU binaries in $PSScriptRoot\qemu"
+            Write-Host "   QEMU not found in PATH or project directory." -ForegroundColor Yellow
+            $winget = Get-Command "winget" -ErrorAction SilentlyContinue
+            if ($winget) {
+                Write-Host "   Installing QEMU via Windows Package Manager (winget)..." -ForegroundColor Cyan
+                Write-Host "   (Pass -SkipQemuInstall to skip automatic winget installation)" -ForegroundColor Gray
+                & winget install -e --id SoftwareFreedomConservancy.QEMU --accept-source-agreements --accept-package-agreements
+                if (Test-Path "C:\Program Files\qemu\qemu-system-x86_64.exe") {
+                    $qemuBin = "C:\Program Files\qemu\qemu-system-x86_64.exe"
+                    Write-Host "   QEMU installed successfully!" -ForegroundColor Green
+                }
+            } else {
+                Write-Warning "winget not found. Please install QEMU from https://qemu.weilnetz.de/w64/ or place QEMU binaries in $PSScriptRoot\qemu"
+            }
         }
     }
 } else {
@@ -120,6 +126,28 @@ if ((Test-Path $vnniKo) -and -not $BuildFromSource) {
 
 # 5. Build Image
 Write-Host "`n[5/6] Verifying image assets and assembling base disk..." -ForegroundColor Yellow
+
+# Ensure template manifest and cmdline are copied into prepared/
+if (Test-Path "launcher\vm.json") {
+    Copy-Item "launcher\vm.json" "prepared\vm.json" -Force
+}
+if (Test-Path "launcher\cmdline.txt") {
+    Copy-Item "launcher\cmdline.txt" "prepared\cmdline.txt" -Force
+}
+
+# Import local assets from development sibling directory if present
+$siblingDir = Join-Path $PSScriptRoot "..\gbos-win-vm\prepared"
+if (Test-Path $siblingDir) {
+    foreach ($f in @("kernel", "initrd.gz", "base.qcow2")) {
+        $srcFile = Join-Path $siblingDir $f
+        $dstFile = Join-Path "prepared" $f
+        if ((Test-Path $srcFile) -and -not (Test-Path $dstFile)) {
+            Write-Host "   Importing $f from local setup ($srcFile)..." -ForegroundColor Cyan
+            Copy-Item $srcFile $dstFile -Force
+        }
+    }
+}
+
 if (Test-Path "prepared\base.qcow2") {
     Write-Host "   prepared\base.qcow2 is already assembled." -ForegroundColor Green
 } else {
@@ -159,10 +187,10 @@ if (Test-Path "prepared\base.qcow2") {
             Expand-Archive -Path $zipTarget -DestinationPath "downloads" -Force
         }
 
-        $binFile = Get-ChildItem "downloads" -Filter "chromeos_*.bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $binFile = Get-ChildItem "downloads" -Filter "*.bin" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($binFile) {
             $rawTarget = Join-Path $PSScriptRoot "downloads\ruby-recovery.raw"
-            Rename-Item -Path $binFile.FullName -NewName $rawTarget -Force
+            Move-Item -Path $binFile.FullName -Destination $rawTarget -Force
             Write-Host "   Recovery image extracted: $rawTarget" -ForegroundColor Green
         }
     }

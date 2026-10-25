@@ -57,16 +57,45 @@ def main():
     PREPARED.mkdir(parents=True, exist_ok=True)
     BUILD.mkdir(parents=True, exist_ok=True)
 
-    print("Checking recovery assets...")
-    # Locates downloaded raw recovery or extracted partitions
-    ruby_raw = next(DOWNLOADS.glob('*ruby*.raw'), None) or next(DOWNLOADS.glob('*recovery*.raw'), None)
-    if not ruby_raw or not ruby_raw.exists():
-        print(f"Error: No recovery .raw file found in {DOWNLOADS}.")
-        print("Please place the unpacked Googlebook OS recovery image (chromeos_...ruby...bin) into downloads/")
-        sys.exit(1)
+    # 1. Ensure manifest and cmdline are present in prepared/
+    launcher_manifest = ROOT / 'launcher' / 'vm.json'
+    target_manifest = PREPARED / 'vm.json'
+    if launcher_manifest.is_file() and not target_manifest.is_file():
+        shutil.copyfile(launcher_manifest, target_manifest)
+        print("Initialized prepared/vm.json from launcher template.")
 
-    print(f"Found recovery image: {ruby_raw.name}")
-    print("Base image build pipeline ready.")
+    launcher_cmdline = ROOT / 'launcher' / 'cmdline.txt'
+    target_cmdline = PREPARED / 'cmdline.txt'
+    if launcher_cmdline.is_file() and not target_cmdline.is_file():
+        shutil.copyfile(launcher_cmdline, target_cmdline)
+        print("Initialized prepared/cmdline.txt from launcher template.")
+
+    # 2. Check for kernel and initrd
+    sibling_prepared = ROOT.parent / 'gbos-win-vm' / 'prepared'
+    if sibling_prepared.is_dir():
+        for asset_name in ('kernel', 'initrd.gz', 'base.qcow2'):
+            src = sibling_prepared / asset_name
+            dst = PREPARED / asset_name
+            if src.is_file() and not dst.is_file():
+                print(f"Importing {asset_name} from local dev environment...")
+                shutil.copyfile(src, dst)
+
+    # 3. Check base disk
+    base_disk = PREPARED / 'base.qcow2'
+    if base_disk.is_file():
+        print(f"Base disk image found: {base_disk} ({base_disk.stat().st_size / (1024**3):.2f} GiB)")
+        return 0
+
+    print("Checking recovery assets in downloads/...")
+    ruby_raw = next(DOWNLOADS.glob('*ruby*.raw'), None) or next(DOWNLOADS.glob('*recovery*.raw'), None) or next(DOWNLOADS.glob('*.bin'), None)
+    if ruby_raw and ruby_raw.exists():
+        print(f"Found recovery image: {ruby_raw.name} ({ruby_raw.stat().st_size / (1024**3):.2f} GiB)")
+        print("Note: To assemble base.qcow2 from recovery raw, disk assembly tools are required.")
+    else:
+        print("No base.qcow2 or recovery raw found in downloads/.")
+        print("Please place prepared/base.qcow2 or download the recovery image via install.ps1.")
+
+    return 0
 
 if __name__ == '__main__':
     main()
