@@ -152,11 +152,24 @@ def wait_with_boot_monitor(proc: subprocess.Popen, serial_log: Path, qemu_log: P
     stage = 0
     warned_no_serial = False
     reported_panic = False
+    seen_qemu_lines: set[str] = set()
     start_ts = time.monotonic()
 
     while proc.poll() is None:
         time.sleep(1.5)
         elapsed = time.monotonic() - start_ts
+
+        if qemu_log.is_file() and qemu_log.stat().st_size > 0:
+            try:
+                for qline in qemu_log.read_text(encoding='utf-8', errors='replace').splitlines():
+                    qline_s = qline.strip()
+                    if not qline_s or 'Ignoring request for interrupt vector 0' in qline_s:
+                        continue
+                    if qline_s not in seen_qemu_lines:
+                        seen_qemu_lines.add(qline_s)
+                        print(f'  [QEMU] {qline_s}', flush=True)
+            except OSError:
+                pass
 
         if serial_log.is_file():
             sz = serial_log.stat().st_size
