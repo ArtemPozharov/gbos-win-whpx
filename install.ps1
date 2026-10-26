@@ -161,21 +161,8 @@ if (Test-Path "launcher\cmdline.txt") {
     Copy-Item "launcher\cmdline.txt" "prepared\cmdline.txt" -Force
 }
 
-# Import local assets from development sibling directory if present
-$siblingDir = Join-Path $PSScriptRoot "..\gbos-win-vm\prepared"
-if (Test-Path $siblingDir) {
-    foreach ($f in @("kernel", "initrd.gz", "base.qcow2")) {
-        $srcFile = Join-Path $siblingDir $f
-        $dstFile = Join-Path "prepared" $f
-        if ((Test-Path $srcFile) -and -not (Test-Path $dstFile)) {
-            Write-Host "   Importing $f from local setup ($srcFile)..." -ForegroundColor Cyan
-            Copy-Item $srcFile $dstFile -Force
-        }
-    }
-}
-
-if (Test-Path "prepared\base.qcow2") {
-    Write-Host "   prepared\base.qcow2 is already assembled." -ForegroundColor Green
+if ((Test-Path "prepared\base.qcow2") -and (Test-Path "prepared\kernel") -and (Test-Path "prepared\initrd.gz")) {
+    Write-Host "   All prepared VM assets (kernel, initrd.gz, base.qcow2) are already assembled." -ForegroundColor Green
 } else {
     $existingRaw = Get-ChildItem "downloads" -Filter "*ruby*.raw" -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $existingRaw) {
