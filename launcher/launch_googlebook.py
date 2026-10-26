@@ -223,9 +223,13 @@ def main() -> int:
     parser.add_argument('--cpus', type=int, default=default_cpus,
                         help=f'Virtual CPU cores (default: {default_cpus} - half of host cores)')
     parser.add_argument('--resolution', default='1280x800', help='Display WxH (default: 1280x800, 16:10)')
-    parser.add_argument('--display-backend', choices=['gtk', 'sdl', 'none'], default='gtk')
-    parser.add_argument('--fullscreen', action=argparse.BooleanOptionalAction, default=True,
-                        help='Start in fullscreen mode (default: True)')
+    parser.add_argument('--display-backend', choices=['gtk', 'sdl', 'none'], default='sdl',
+                        help='Display backend (default: sdl; gtk ignores --resolution and uses its window size)')
+    parser.add_argument('--fullscreen', action=argparse.BooleanOptionalAction, default=False,
+                        help='Start in fullscreen mode (default: False)')
+    parser.add_argument('--gpu', choices=['swiftshader', 'virgl'], default='swiftshader',
+                        help='Guest GLES renderer: swiftshader (CPU, default) or virgl (host GPU via Mesa VirGL; '
+                             'needs prepared/base-virgl.qcow2, see scripts/build_vendor_virgl.py)')
     parser.add_argument('--ephemeral', action='store_true', help='Discard writes when VM closes')
     parser.add_argument('--offline', action='store_true', help='Disable user-mode NAT networking')
     parser.add_argument('--no-audio', action='store_true', help='Disable DirectSound USB audio')
@@ -238,15 +242,25 @@ def main() -> int:
     manifest_path, assets, cmdline = load_manifest(args.manifest)
     qemu, qemu_img = find_qemu_binaries(args.qemu)
 
+    virgl = args.gpu == 'virgl'
+    if virgl and args.display_backend == 'none':
+        parser.error('--gpu virgl needs a display backend (sdl or gtk)')
+    base_disk = assets['disk']
     userdata = manifest_path.parent / 'userdata.qcow2'
+    if virgl:
+        # Separate overlay chain: userdata is backed by the VirGL vendor image, so it must not be shared with the stock one.
+        base_disk = base_disk.with_name('base-virgl.qcow2')
+        userdata = manifest_path.parent / 'userdata-virgl.qcow2'
+        if not base_disk.is_file() and not args.dry_run:
+            parser.error(f'{base_disk} not found; run: python scripts/build_vendor_virgl.py')
     if args.ephemeral:
-        disk = assets['disk']
+        disk = base_disk
         drive_spec = f'if=none,id=os,format=qcow2,file={str(disk).replace(",", ",,")},snapshot=on'
     else:
         if (not userdata.exists() or userdata.stat().st_size == 0) and not args.dry_run:
             subprocess.run([
                 str(qemu_img), 'create', '-f', 'qcow2', '-F', 'qcow2',
-                '-b', str(assets['disk']), str(userdata)
+                '-b', str(base_disk), str(userdata)
             ], check=True)
         disk = userdata
         drive_spec = f'if=none,id=os,format=qcow2,file={str(disk).replace(",", ",,")}'
@@ -254,6 +268,10 @@ def main() -> int:
     run_name = 'run-' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     session = manifest_path.parent / 'logs' / run_name
     serial_log = session / 'serial.log'
+
+    # virgl: addr=02.0 is required, the vendor sepolicy only labels that PCI slot as sysfs_gpu (default 01.0 -> EGL init denied).
+    gpu_device = (f'virtio-gpu-gl-pci,xres={width},yres={height},edid=off,romfile=,addr=02.0' if virgl
+                  else f'virtio-gpu-pci,xres={width},yres={height},edid=off,romfile=')
 
     cmd = [str(qemu)]
     share_dir = qemu.parent / 'share'
@@ -268,7 +286,7 @@ def main() -> int:
         '-m', str(args.memory_mb),
         '-smp', f'sockets=1,cores={args.cpus},threads=1',
         '-vga', 'none',
-        '-device', f'virtio-gpu-pci,xres={width},yres={height},romfile=',
+        '-device', gpu_device,
         '-drive', drive_spec,
         '-device', 'virtio-blk-pci,drive=os,addr=03.0',
         '-device', 'qemu-xhci,id=xhci',
@@ -302,6 +320,8 @@ def main() -> int:
         if args.fullscreen:
             display_opts.append('full-screen=on')
             display_opts.append('show-menubar=off')
+    if virgl:
+        display_opts.append('gl=on')
     cmd += ['-display', ','.join(display_opts)]
     if args.fullscreen and args.display_backend != 'none':
         cmd += ['-full-screen']
@@ -319,7 +339,7 @@ def main() -> int:
     print('  Googlebook OS (Android 17) - Windows Hypervisor Platform (WHPX)')
     print('================================================================')
     print(f'  QEMU       : {qemu_ver_str}')
-    print(f'  Resolution : {width}x{height} (Full screen scaled)')
+    print(f'  Resolution : {width}x{height} ({"fullscreen" if args.fullscreen else "windowed"})')
     print(f'  RAM / CPUs : {args.memory_mb} MiB / {args.cpus} vCPUs (50% host auto)')
     print(f'  User data  : {disk}')
     print(f'  Session log: {session}')

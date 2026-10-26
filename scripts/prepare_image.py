@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Assembles the Googlebook OS VM assets (kernel, initrd.gz, cmdline.txt, base.qcow2, vm.json) from recovery raw."""
+"""Assembles the Googlebook OS VM assets (kernel, initrd.gz, cmdline.txt, base.qcow2, vm.json) from recovery raw.
+
+With --virgl, only (re)creates prepared/base-virgl.qcow2 from build/vendor-virgl.erofs (optional GPU variant)."""
 import gzip
 import hashlib
 import json
@@ -236,6 +238,7 @@ def write_qcow2_backed(
     virtual_size: int,
     writes: list[tuple[int, bytes]],
     raw_backing_path: pathlib.Path,
+    backing_format: str = 'raw',
 ) -> None:
     """Write a QCOW2 v3 overlay image backed by raw_backing_path with exact byte writes at arbitrary guest offsets."""
     CS = 65536
@@ -279,9 +282,10 @@ def write_qcow2_backed(
 
     hdr = bytearray(CS)
     bf_bytes = backing_file.encode('utf-8')
-    # Header extension at offset 104: Backing file format = "raw" (magic 0xE2792ACA)
+    # Header extension at offset 104: Backing file format (magic 0xE2792ACA)
     ext_offset = 104
-    struct.pack_into('>II8sII', hdr, ext_offset, 0xE2792ACA, 3, b'raw\x00\x00\x00\x00\x00', 0, 0)
+    fmt = backing_format.encode('ascii')
+    struct.pack_into('>II8sII', hdr, ext_offset, 0xE2792ACA, len(fmt), fmt.ljust(8, b'\x00'), 0, 0)
     bf_offset = ext_offset + 24
     l1_entries = (virtual_size + (L2_ENTRIES * CS) - 1) // (L2_ENTRIES * CS)
     struct.pack_into(
@@ -337,6 +341,44 @@ def write_qcow2_backed(
             f.write(clusters[c_idx])
 
 
+def write_virgl_overlay(recovery_raw: pathlib.Path, erofs: pathlib.Path, base: pathlib.Path, overlay: pathlib.Path) -> None:
+    """Write a qcow2 overlay of base that replaces the GBVENDOR partition with a Mesa VirGL vendor EROFS."""
+    mib = 1048576
+    # GBVENDOR sits right after GBRUNCH, which starts at the 1 MiB-aligned end of the recovery raw.
+    compat_size = len(zlib.decompress((ASSETS / 'compat-vm.ext4.zlib').read_bytes()))
+    vendor_off = (recovery_raw.stat().st_size + mib - 1) // mib * mib + (compat_size + mib - 1) // mib * mib
+    part_size = (len(reconstruct_vendor_erofs_bytes(recovery_raw)) + mib - 1) // mib * mib
+    new_size = erofs.stat().st_size
+    if new_size > part_size:
+        raise ValueError(f"{erofs.name} ({new_size} B) does not fit the GBVENDOR partition ({part_size} B)")
+    assert vendor_off % 65536 == 0 and part_size % 65536 == 0  # whole qcow2 clusters, no backing merge needed
+
+    with base.open('rb') as f:
+        hdr = f.read(32)
+    if hdr[:4] != b'QFI\xfb':
+        raise ValueError(f"{base} is not a qcow2 image")
+    virtual_size = struct.unpack_from('>Q', hdr, 24)[0]
+    padded = erofs.read_bytes().ljust(part_size, b'\0')
+    write_qcow2_backed(overlay, base.name, virtual_size, [(vendor_off, padded)], base, backing_format='qcow2')
+
+
+def prepare_virgl() -> int:
+    """Optional step: prepared/base-virgl.qcow2 from build/vendor-virgl.erofs (see scripts/build_vendor_virgl.py)."""
+    erofs = BUILD / 'vendor-virgl.erofs'
+    base = PREPARED / 'base.qcow2'
+    raw = find_recovery_raw()
+    if not raw or not base.is_file():
+        print("Error: recovery raw or prepared/base.qcow2 missing; run install.ps1 first.", file=sys.stderr)
+        return 1
+    if not erofs.is_file():
+        print(f"Error: {erofs} missing; build it first with: python scripts/build_vendor_virgl.py", file=sys.stderr)
+        return 1
+    overlay = PREPARED / 'base-virgl.qcow2'
+    write_virgl_overlay(raw, erofs, base, overlay)
+    print(f"prepared/base-virgl.qcow2 ready ({overlay.stat().st_size / (1024**2):.1f} MiB overlay on base.qcow2)")
+    return 0
+
+
 def find_recovery_raw() -> pathlib.Path | None:
     for pattern in ('*ruby*.raw', '*recovery*.raw', '*.bin'):
         hit = next(DOWNLOADS.glob(pattern), None)
@@ -349,6 +391,9 @@ def find_recovery_raw() -> pathlib.Path | None:
 
 
 def main() -> int:
+    if '--virgl' in sys.argv[1:]:
+        return prepare_virgl()
+
     PREPARED.mkdir(parents=True, exist_ok=True)
     BUILD.mkdir(parents=True, exist_ok=True)
 
