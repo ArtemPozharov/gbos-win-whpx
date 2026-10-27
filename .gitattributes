@@ -1,4 +1,3 @@
-# Auto detect text files and perform LF normalization
-* text=auto
-*.zlib binary
 *.ko binary
+*.zlib binary
+patches/avx_vnni/preinit binary

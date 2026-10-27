@@ -390,6 +390,33 @@ def find_recovery_raw() -> pathlib.Path | None:
     return None
 
 
+def get_isa_patch_artifacts() -> tuple[bytes, bytes, str]:
+    ko_path = ROOT / 'patches' / 'avx_vnni' / 'avx_vnni_emu.ko'
+    preinit_path = ROOT / 'patches' / 'avx_vnni' / 'preinit'
+    if not ko_path.is_file():
+        raise FileNotFoundError(f"Missing ISA compatibility kernel module: {ko_path}")
+    if not preinit_path.is_file():
+        raise FileNotFoundError(f"Missing early preinit wrapper: {preinit_path}")
+    ko_bytes = ko_path.read_bytes()
+    preinit_bytes = preinit_path.read_bytes()
+    isa_sha = hashlib.sha256(ko_bytes + preinit_bytes).hexdigest()
+    return ko_bytes, preinit_bytes, isa_sha
+
+
+def update_existing_initrd_isa(initrd_path: pathlib.Path, ko_bytes: bytes, preinit_bytes: bytes) -> None:
+    raw = gzip.decompress(initrd_path.read_bytes())
+    t_idx = raw.rfind(b'TRAILER!!!')
+    t_pos = raw.rfind(b'070701', 0, t_idx) if t_idx != -1 else len(raw)
+    base_cpio = raw[:t_pos] if t_pos != -1 else raw
+    updated = (
+        base_cpio
+        + cpio_entry('lib/modules/avx_vnni_emu.ko', ko_bytes, 900001)
+        + cpio_entry('preinit', preinit_bytes, 900002, mode=0o100755)
+        + cpio_entry('TRAILER!!!', b'', 0, mode=0)
+    )
+    initrd_path.write_bytes(gzip.compress(updated, compresslevel=6, mtime=0))
+
+
 def main() -> int:
     if '--virgl' in sys.argv[1:]:
         return prepare_virgl()
@@ -407,10 +434,25 @@ def main() -> int:
     if launcher_cmdline.is_file() and not target_cmdline.is_file():
         shutil.copyfile(launcher_cmdline, target_cmdline)
 
+    ko_bytes, preinit_bytes, isa_sha = get_isa_patch_artifacts()
+    existing_spec = json.loads(target_manifest.read_text(encoding='utf-8')) if target_manifest.is_file() else {}
+    isa_outdated = existing_spec.get('isa_patch_sha256') != isa_sha
+
     ruby_raw = find_recovery_raw()
     if not ruby_raw:
         if all((PREPARED / f).is_file() for f in ('kernel', 'initrd.gz', 'cmdline.txt', 'base.qcow2', 'vm.json')):
-            print("All prepared VM assets are already present.")
+            if isa_outdated:
+                print("Updating existing prepared/initrd.gz and cmdline.txt with latest CPU ISA patch...")
+                update_existing_initrd_isa(PREPARED / 'initrd.gz', ko_bytes, preinit_bytes)
+            cmdline = target_cmdline.read_text(encoding='utf-8')
+            cmdline = re.sub(r'\brdinit=/init\b', 'rdinit=/preinit', cmdline)
+            target_cmdline.write_text(cmdline, encoding='utf-8')
+            existing_spec['isa_patch_sha256'] = isa_sha
+            existing_spec['assets']['kernel']['sha256'] = hashlib.sha256((PREPARED / 'kernel').read_bytes()).hexdigest()
+            existing_spec['assets']['initrd']['sha256'] = hashlib.sha256((PREPARED / 'initrd.gz').read_bytes()).hexdigest()
+            existing_spec['assets']['cmdline']['sha256'] = hashlib.sha256(target_cmdline.read_bytes()).hexdigest()
+            target_manifest.write_text(json.dumps(existing_spec, indent=2) + '\n', encoding='utf-8')
+            print("All prepared VM assets are present and up to date.")
             return 0
         print("Error: Official recovery raw image not found in downloads/.", file=sys.stderr)
         print("Please run .\\install.ps1 (without -SkipDownload) to download and extract the recovery image.", file=sys.stderr)
@@ -428,28 +470,27 @@ def main() -> int:
     else:
         print("[1/5] prepared/kernel already present.")
 
-    # 2. Assemble initrd.gz from Cuttlefish base + recovery init_boot_a + AVX-VNNI & VirtIO overlay
+    # 2. Assemble initrd.gz from Cuttlefish base + recovery init_boot_a + CPU ISA & VirtIO overlay
     initrd_out = PREPARED / 'initrd.gz'
-    if not initrd_out.is_file():
+    if not initrd_out.is_file() or isa_outdated:
         print("[2/5] Assembling prepared/initrd.gz from recovery init_boot_a and compatibility ramdisk...")
         c1 = zlib.decompress((ASSETS / 'initrd-base.cpio.zlib').read_bytes())
         c2 = extract_init_boot_cpio(ruby_raw)
-        ko_path = ROOT / 'patches' / 'avx_vnni' / 'avx_vnni_emu.ko'
-        if not ko_path.is_file():
-            raise FileNotFoundError(f"Missing AVX-VNNI module: {ko_path}")
-        ko_entry = cpio_entry('lib/modules/avx_vnni_emu.ko', ko_path.read_bytes(), 900001)
+        ko_entry = cpio_entry('lib/modules/avx_vnni_emu.ko', ko_bytes, 900001)
+        preinit_entry = cpio_entry('preinit', preinit_bytes, 900002, mode=0o100755)
         c3_rest = zlib.decompress((ASSETS / 'initrd-overlay.cpio.zlib').read_bytes())
-        initrd_raw = c1 + c2 + ko_entry + c3_rest
+        initrd_raw = c1 + c2 + ko_entry + preinit_entry + c3_rest
         initrd_gz = gzip.compress(initrd_raw, compresslevel=6, mtime=0)
         initrd_out.write_bytes(initrd_gz)
         print(f"      prepared/initrd.gz ready ({len(initrd_gz) / (1024**2):.2f} MiB)")
     else:
         print("[2/5] prepared/initrd.gz already present.")
 
-    # 3. Update cmdline.txt with vbmeta_a AVB digest
+    # 3. Update cmdline.txt with rdinit=/preinit and vbmeta_a AVB digest
     print("[3/5] Configuring kernel cmdline.txt for AVB verification...")
     vs, digest = extract_vbmeta_info(ruby_raw)
     cmdline = target_cmdline.read_text(encoding='utf-8')
+    cmdline = re.sub(r'\brdinit=/init\b', 'rdinit=/preinit', cmdline)
     cmdline = re.sub(r'androidboot\.vbmeta\.size=\d+', f'androidboot.vbmeta.size={vs}', cmdline)
     cmdline = re.sub(r'androidboot\.vbmeta\.digest=[a-f0-9]+', f'androidboot.vbmeta.digest={digest}', cmdline)
     target_cmdline.write_text(cmdline, encoding='utf-8')
@@ -544,6 +585,7 @@ def main() -> int:
 
     # Update vm.json hashes
     spec = json.loads(target_manifest.read_text(encoding='utf-8'))
+    spec['isa_patch_sha256'] = isa_sha
     spec['assets']['kernel']['sha256'] = hashlib.sha256(kernel_out.read_bytes()).hexdigest()
     spec['assets']['initrd']['sha256'] = hashlib.sha256(initrd_out.read_bytes()).hexdigest()
     spec['assets']['cmdline']['sha256'] = hashlib.sha256(target_cmdline.read_bytes()).hexdigest()

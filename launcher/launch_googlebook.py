@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import datetime
+import gzip
 import hashlib
 import json
 import os
@@ -15,9 +16,9 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MANIFEST = ROOT / 'prepared' / 'vm.json'
-# Disable bleeding-edge CPU features (waitpkg/tpause, la57, pks, vmx/svm, pmu, arch-capabilities)
-# that Windows Hypervisor Platform (WHPX) fails to virtualize on modern Intel/AMD CPUs.
-DEFAULT_CPU = 'max,waitpkg=off,la57=off,pks=off,vmx=off,svm=off,pmu=off,arch-capabilities=off'
+# Disable bleeding-edge CPU features (waitpkg/tpause, la57, pks, pku, vmx/svm, pmu, arch-capabilities)
+# that Windows Hypervisor Platform (WHPX) fails to virtualize on Intel/AMD CPUs.
+DEFAULT_CPU = 'max,waitpkg=off,la57=off,pks=off,pku=off,vmx=off,svm=off,pmu=off,arch-capabilities=off'
 
 
 def find_qemu_binaries(custom_qemu: Path | None = None) -> tuple[Path, Path]:
@@ -102,6 +103,58 @@ def check_regular_file(path: Path) -> Path:
     return resolved
 
 
+def _cpio_entry(name: str, body: bytes, ino: int, mode: int = 0o100644) -> bytes:
+    n = name.encode() + b'\0'
+    fields = [ino, mode, 0, 0, 1, 0, len(body), 0, 0, 0, 0, len(n), 0]
+    block = b'070701' + b''.join(f'{v:08x}'.encode() for v in fields) + n
+    block += b'\0' * (-len(block) % 4) + body + b'\0' * (-len(body) % 4)
+    return block
+
+
+def ensure_isa_patch_current(manifest_path: Path, spec: dict) -> dict:
+    """Auto-upgrade prepared/initrd.gz and cmdline.txt in-place when CPU ISA patch is updated via git pull."""
+    ko_path = ROOT / 'patches' / 'avx_vnni' / 'avx_vnni_emu.ko'
+    preinit_path = ROOT / 'patches' / 'avx_vnni' / 'preinit'
+    if not (ko_path.is_file() and preinit_path.is_file()):
+        return spec
+
+    initrd_path = manifest_path.parent / spec['assets']['initrd']['file']
+    cmdline_path = manifest_path.parent / spec['assets']['cmdline']['file']
+    if not (initrd_path.is_file() and cmdline_path.is_file()):
+        return spec
+
+    ko_bytes = ko_path.read_bytes()
+    preinit_bytes = preinit_path.read_bytes()
+    isa_sha = hashlib.sha256(ko_bytes + preinit_bytes).hexdigest()
+    cmdline_txt = cmdline_path.read_text(encoding='utf-8')
+
+    if spec.get('isa_patch_sha256') == isa_sha and 'rdinit=/preinit' in cmdline_txt:
+        return spec
+
+    print('  [patch] Updating prepared/initrd.gz & cmdline.txt with latest CPU ISA compatibility patch...', flush=True)
+    raw = gzip.decompress(initrd_path.read_bytes())
+    t_idx = raw.rfind(b'TRAILER!!!')
+    t_pos = raw.rfind(b'070701', 0, t_idx) if t_idx != -1 else len(raw)
+    base_cpio = raw[:t_pos] if t_pos != -1 else raw
+    updated = (
+        base_cpio
+        + _cpio_entry('lib/modules/avx_vnni_emu.ko', ko_bytes, 900001)
+        + _cpio_entry('preinit', preinit_bytes, 900002, mode=0o100755)
+        + _cpio_entry('TRAILER!!!', b'', 0, mode=0)
+    )
+    initrd_gz = gzip.compress(updated, compresslevel=6, mtime=0)
+    initrd_path.write_bytes(initrd_gz)
+
+    new_cmdline = re.sub(r'\brdinit=/init\b', 'rdinit=/preinit', cmdline_txt)
+    cmdline_path.write_text(new_cmdline, encoding='utf-8')
+
+    spec['isa_patch_sha256'] = isa_sha
+    spec['assets']['initrd']['sha256'] = hashlib.sha256(initrd_gz).hexdigest()
+    spec['assets']['cmdline']['sha256'] = hashlib.sha256(cmdline_path.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(spec, indent=2) + '\n', encoding='utf-8')
+    return spec
+
+
 def load_manifest(manifest_path: Path):
     if not manifest_path.is_file():
         fallback = ROOT / 'launcher' / 'vm.json'
@@ -116,6 +169,7 @@ def load_manifest(manifest_path: Path):
     spec = json.loads(manifest_path.read_text(encoding='utf-8'))
     if spec.get('profile_version') != 1:
         raise ValueError('Unsupported vm.json profile_version')
+    spec = ensure_isa_patch_current(manifest_path, spec)
     assets = {}
     for key in ('kernel', 'initrd', 'cmdline', 'disk'):
         entry = spec['assets'][key]
@@ -196,8 +250,11 @@ def wait_with_boot_monitor(proc: subprocess.Popen, serial_log: Path, qemu_log: P
                 if not reported_panic and 'Kernel panic - not syncing' in txt:
                     reported_panic = True
                     print('\n  [ERROR] Guest kernel panic detected in serial.log:', flush=True)
-                    for line in txt.splitlines():
-                        if 'Kernel panic' in line or 'RIP:' in line or 'Call Trace:' in line:
+                    p_idx = txt.find('Kernel panic - not syncing')
+                    t_idx = txt.rfind('traps:', max(0, p_idx - 512), p_idx)
+                    tail_txt = txt[t_idx if t_idx != -1 else p_idx:]
+                    for line in tail_txt.splitlines():
+                        if any(k in line for k in ('traps:', 'Kernel panic', 'RIP:', 'Call Trace:')):
                             print(f'    {line}', flush=True)
             elif elapsed >= 15.0 and not warned_no_serial:
                 warned_no_serial = True

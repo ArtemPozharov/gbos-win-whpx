@@ -296,8 +296,23 @@ def main():
         'bss_sz': 0,
     })
 
-    # Collect undefined symbols and resolve CRCs from vmlinux
-    crc_map = load_vmlinux_crcs(BUILD / 'vmlinux')
+    # Collect undefined symbols and resolve CRCs from vmlinux (or built-in 6.12.74-android16-6 table)
+    vmlinux_candidates = [
+        BUILD / 'vmlinux',
+        ROOT.parent / 'gbos-win-vm' / 'build' / 'vmlinux',
+    ]
+    vmlinux_found = next((p for p in vmlinux_candidates if p.is_file()), None)
+    if vmlinux_found:
+        crc_map = load_vmlinux_crcs(vmlinux_found)
+    else:
+        crc_map = {
+            'module_layout': 0xda0486d9,
+            'copy_from_user_nofault': 0x2aacc14e,
+            'switch_fpu_return': 0xd272d446,
+            'register_die_notifier': 0x0a227d4d,
+            'unregister_die_notifier': 0x0a227d4d,
+            '_printk': 0x16b5b21d,
+        }
     undef_names = [sym['name'] for sym in syms[1:] if sym['shndx'] == 0]
     print('   Undefined kernel symbols:', undef_names, flush=True)
     ver_list = []
@@ -484,6 +499,25 @@ def main():
 
     ko_path.write_bytes(out)
     print(f'2. Successfully built {ko_path} ({len(out):,} bytes)!', flush=True)
+
+    preinit_src = pathlib.Path(__file__).resolve().parent / 'preinit.c'
+    preinit_out = pathlib.Path(__file__).resolve().parent / 'preinit'
+    if preinit_src.is_file():
+        print('3. Compiling preinit.c -> preinit...', flush=True)
+        subprocess.run([
+            zig_bin, 'cc',
+            '-target', 'x86_64-linux-none',
+            '-mcpu=x86_64',
+            '-O2', '-g0', '-s',
+            '-nostdlib', '-static',
+            '-fno-pie', '-no-pie',
+            '-fno-stack-protector',
+            '-fno-asynchronous-unwind-tables',
+            '-fno-unwind-tables',
+            str(preinit_src),
+            '-o', str(preinit_out),
+        ], check=True)
+        print(f'4. Successfully built {preinit_out} ({preinit_out.stat().st_size:,} bytes)!', flush=True)
 
 
 if __name__ == '__main__':

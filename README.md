@@ -22,13 +22,13 @@ Previous community efforts (such as `gbrunch` and `gbos-vm`) were either restric
 
 
 
-1. **Pure-GPR Kernel `#UD` AVX-VNNI Trap Emulator (`avx_vnni_emu.ko`)**:
+1. **Early `/preinit` + Kernel `#UD` Alder Lake ISA Emulator (`avx_vnni_emu.ko`)**:
 
-   * *The Problem:* Googlebook OS userspace binaries (`libz.so`, `libcrypto_httpengine.so`) are compiled for Intel Core Ultra with VEX-encoded `AVX-VNNI` (`vpdpbusd`, `vpdpwssd`). AMD Zen 1–4 processors and older Intel CPUs (11th Gen and older) do not have this instruction set, resulting in immediate fatal `SIGILL` (Invalid Opcode) crashes.
+   * *The Problem:* Googlebook OS binaries (`/init`, `libz.so`, `libcrypto_httpengine.so`) are compiled for Intel Alder Lake / Meteor Lake with `AVX-VNNI`, `GFNI` (`vgf2p8affineqb`), `VAES`, `VPCLMULQDQ`, and `SHA-NI`. AMD Ryzen Zen 1–3/4 and Intel 6th–11th Gen CPUs lack subsets of these instructions, causing immediate `SIGILL` crashes (including an early kernel panic in PID 1 `/init` on Zen 1–3 and Skylake–Comet Lake).
 
-   * *The Fix:* We developed a lightweight Linux kernel module that hooks the `#UD` exception handler, decodes the VEX instruction bytes, emulates the dot-product in pure general-purpose registers without clobbering host vector registers, and advances `pt_regs->ip`.
+   * *The Fix:* A minimal freestanding baseline `x86-64` `/preinit` wrapper loads `avx_vnni_emu.ko` before `/init` executes its first instruction, hooking the kernel `#UD` trap handler to emulate `AVX-VNNI`, `GFNI`, `VAES`, `VPCLMULQDQ`, `AVX-IFMA`, and `SHA-NI` transparently.
 
-   * *CPU Compatibility:* Runs universally on **AMD Zen 1–5** and **Intel Core (all generations)**. On CPUs with native silicon AVX-VNNI (Zen 5, Intel 12th+ Gen), the hardware executes it natively with 0% overhead.
+   * *CPU Compatibility:* Runs universally on **AMD Ryzen Zen 1–5** and **Intel Core (6th Gen Skylake and newer)**. Instructions supported natively in silicon execute directly on hardware with 0% overhead.
 
 
 
@@ -297,6 +297,8 @@ This work builds upon research and concepts from the open-source community:
 * [**gbrunch**](https://github.com/danbyumagic/gbrunch) by `@danbyumagic` for original x86 recovery analysis, GPT partition layout, and Cuttlefish component grafting.
 
 * [**gbos-vm**](https://github.com/skylartaylor/gbos-vm) by `@skylartaylor` for the vendor replacement model and setup wizard bypass scripts.
+
+* **`@kevin-smets`** for optional Mesa VirGL host GPU GLES acceleration (`--gpu virgl`).
 
 * **Google Android Cuttlefish** team for the virtual hardware HAL implementations.
 

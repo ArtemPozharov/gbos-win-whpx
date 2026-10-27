@@ -139,13 +139,14 @@ if (-not (Test-Path $qemuImg)) {
 }
 
 # 4. In-flight patches and Assets
-Write-Host "`n[4/6] Verifying patches (AVX-VNNI AMD emulator, SELinux, Colors)..." -ForegroundColor Yellow
+Write-Host "`n[4/6] Verifying patches (Alder Lake / GFNI / AVX-VNNI CPU emulator, SELinux, Colors)..." -ForegroundColor Yellow
 $vnniKo = Join-Path $PSScriptRoot "patches\avx_vnni\avx_vnni_emu.ko"
-if ((Test-Path $vnniKo) -and -not $BuildFromSource) {
+$preinitBin = Join-Path $PSScriptRoot "patches\avx_vnni\preinit"
+if ((Test-Path $vnniKo) -and (Test-Path $preinitBin) -and -not $BuildFromSource) {
     $koHash = (Get-FileHash $vnniKo -Algorithm SHA256).Hash
-    Write-Host "   Using verified AVX-VNNI kernel module (SHA-256: $koHash)." -ForegroundColor Green
+    Write-Host "   Using verified CPU compatibility module + preinit (SHA-256: $koHash)." -ForegroundColor Green
 } else {
-    Write-Host "   Compiling avx_vnni_emu.ko from source (requires zig compiler)..." -ForegroundColor Gray
+    Write-Host "   Compiling avx_vnni_emu.ko + preinit from source (requires zig compiler)..." -ForegroundColor Gray
     & python "patches\avx_vnni\build_avx_vnni_ko.py"
     if ($LASTEXITCODE -ne 0) { Write-Error "Building avx_vnni_emu.ko failed."; exit 1 }
 }
@@ -153,17 +154,15 @@ if ((Test-Path $vnniKo) -and -not $BuildFromSource) {
 # 5. Build Image
 Write-Host "`n[5/6] Verifying image assets and assembling base disk..." -ForegroundColor Yellow
 
-# Ensure template manifest and cmdline are copied into prepared/
-if (Test-Path "launcher\vm.json") {
-    Copy-Item "launcher\vm.json" "prepared\vm.json" -Force
+# Ensure template manifest and cmdline exist in prepared/ without clobbering existing digests
+if ((Test-Path "launcher\vm.json") -and -not (Test-Path "prepared\vm.json")) {
+    Copy-Item "launcher\vm.json" "prepared\vm.json"
 }
-if (Test-Path "launcher\cmdline.txt") {
-    Copy-Item "launcher\cmdline.txt" "prepared\cmdline.txt" -Force
+if ((Test-Path "launcher\cmdline.txt") -and -not (Test-Path "prepared\cmdline.txt")) {
+    Copy-Item "launcher\cmdline.txt" "prepared\cmdline.txt"
 }
 
-if ((Test-Path "prepared\base.qcow2") -and (Test-Path "prepared\kernel") -and (Test-Path "prepared\initrd.gz")) {
-    Write-Host "   All prepared VM assets (kernel, initrd.gz, base.qcow2) are already assembled." -ForegroundColor Green
-} else {
+if (-not ((Test-Path "prepared\base.qcow2") -and (Test-Path "prepared\kernel") -and (Test-Path "prepared\initrd.gz"))) {
     $existingRaw = Get-ChildItem "downloads" -Filter "*ruby*.raw" -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $existingRaw) {
         $existingRaw = Get-ChildItem "downloads" -Filter "*recovery*.raw" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -213,11 +212,11 @@ if ((Test-Path "prepared\base.qcow2") -and (Test-Path "prepared\kernel") -and (T
             Write-Host "   Recovery image extracted: $rawTarget" -ForegroundColor Green
         }
     }
-
-    Write-Host "   Assembling disk from official recovery image..." -ForegroundColor Gray
-    & python "scripts\prepare_image.py"
-    if ($LASTEXITCODE -ne 0) { Write-Error "Disk assembly failed."; exit 1 }
 }
+
+Write-Host "   Verifying and assembling VM assets..." -ForegroundColor Gray
+& python "scripts\prepare_image.py"
+if ($LASTEXITCODE -ne 0) { Write-Error "Disk assembly failed."; exit 1 }
 
 # Apply color fix
 if (Test-Path "prepared\initrd.gz") {
