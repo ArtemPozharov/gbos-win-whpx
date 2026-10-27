@@ -309,7 +309,11 @@ def main() -> int:
         base_disk = base_disk.with_name('base-virgl.qcow2')
         userdata = manifest_path.parent / 'userdata-virgl.qcow2'
         if not base_disk.is_file() and not args.dry_run:
-            parser.error(f'{base_disk} not found; run: python scripts/build_vendor_virgl.py')
+            print(f'  [gpu] {base_disk.name} not found; auto-building VirGL vendor overlay...')
+            build_script = ROOT / 'scripts' / 'build_vendor_virgl.py'
+            r = subprocess.run([sys.executable, str(build_script)])
+            if r.returncode != 0 or not base_disk.is_file():
+                parser.error(f'{base_disk} not found and auto-build failed; see output above.')
     if args.ephemeral:
         disk = base_disk
         drive_spec = f'if=none,id=os,format=qcow2,file={str(disk).replace(",", ",,")},snapshot=on'

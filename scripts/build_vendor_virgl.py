@@ -14,7 +14,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import prepare_image as pi  # noqa: E402
 
 DEFAULT_WSL_DISTRO = 'Ubuntu'
-DEFAULT_MESA_OUT = '/root/build/out'
+DEFAULT_MESA_TAR = pi.ASSETS / 'mesa-virgl.tar.gz'
 DEFAULT_VEND = '/root/vend'
 DEFAULT_STAGE = '/root/vend-virgl'
 DEFAULT_NDK_STRIP = '/root/build/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
@@ -49,7 +49,8 @@ def build_erofs(
     out: pathlib.Path,
     raw: pathlib.Path,
     distro: str,
-    mesa_out: str,
+    mesa_tar: pathlib.Path | None,
+    mesa_out: str | None,
     vend: str,
     stage: str,
     ndk_strip: str,
@@ -61,23 +62,37 @@ def build_erofs(
     q_stock = shlex.quote(win_to_wsl(vendor_stock))
 
     system_off = pi.find_super_subpartition_offset(raw, 'system_a')
-    q_mesa = shlex.quote(mesa_out)
     q_vend = shlex.quote(vend)
     q_stage = shlex.quote(stage)
-    q_strip = shlex.quote(ndk_strip)
     q_raw = shlex.quote(win_to_wsl(raw))
     q_out = shlex.quote(win_to_wsl(out))
 
-    copies = '\n'.join(
-        f'install -D -m 0644 {q_mesa}/{shlex.quote(src)} {q_stage}/{shlex.quote(dst)}\n'
-        f'if [ -x {q_strip} ]; then {q_strip} {q_stage}/{shlex.quote(dst)}; '
-        f'elif command -v llvm-strip >/dev/null 2>&1; then llvm-strip {q_stage}/{shlex.quote(dst)}; fi'
-        for src, dst in MESA_LIBS
-    )
-    script = f'''
+    if mesa_tar and mesa_tar.is_file():
+        q_tar = shlex.quote(win_to_wsl(mesa_tar))
+        install_mesa_cmd = f'tar -xzf {q_tar} -C {q_stage}/lib64'
+    elif mesa_out:
+        q_mesa = shlex.quote(mesa_out)
+        q_strip = shlex.quote(ndk_strip)
+        copies = '\n'.join(
+            f'install -D -m 0644 {q_mesa}/{shlex.quote(src)} {q_stage}/{shlex.quote(dst)}\n'
+            f'if [ -x {q_strip} ]; then {q_strip} {q_stage}/{shlex.quote(dst)}; '
+            f'elif command -v llvm-strip >/dev/null 2>&1; then llvm-strip {q_stage}/{shlex.quote(dst)}; fi'
+            for src, dst in MESA_LIBS
+        )
+        install_mesa_cmd = f'''
 if [ ! -d {q_mesa} ]; then
   echo "Missing WSL prerequisites: expected Mesa Android build at {mesa_out}" >&2
   exit 2
+fi
+{copies}'''
+    else:
+        raise ValueError("Neither mesa_tar nor mesa_out provided")
+
+    script = f'''
+# Ensure erofs-utils is available
+if ! command -v mkfs.erofs >/dev/null 2>&1 || ! command -v fsck.erofs >/dev/null 2>&1; then
+  echo "Installing erofs-utils in WSL..."
+  apt-get update -qq && apt-get install -y -qq erofs-utils
 fi
 if [ ! -d {q_vend} ] || [ ! -f {q_vend}/build.prop ]; then
   echo "Unpacking vendor tree from {q_stock} to {vend} in WSL..."
@@ -91,7 +106,7 @@ fsck.erofs --offset={system_off} --extract=/root/plat_fc --path=/system/etc/seli
 cat /root/plat_fc {q_vend}/etc/selinux/vendor_file_contexts > /root/file_contexts.all
 rm -rf {q_stage}
 cp -a {q_vend} {q_stage}
-{copies}
+{install_mesa_cmd}
 sed -i 's/^ro\\.hardware\\.egl=.*/ro.hardware.egl=mesa/' {q_stage}/build.prop
 grep -q '^ro.hardware.egl=mesa' {q_stage}/build.prop
 rm -f /root/vendor-virgl.erofs
@@ -106,7 +121,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--skip-erofs', action='store_true', help='Reuse an existing build/vendor-virgl.erofs')
     ap.add_argument('--wsl-distro', default=DEFAULT_WSL_DISTRO, help=f'WSL distro name (default: {DEFAULT_WSL_DISTRO})')
-    ap.add_argument('--mesa-out', default=DEFAULT_MESA_OUT, help=f'WSL path to Mesa build output (default: {DEFAULT_MESA_OUT})')
+    ap.add_argument('--mesa-tar', type=pathlib.Path, default=DEFAULT_MESA_TAR if DEFAULT_MESA_TAR.is_file() else None,
+                    help=f'Path to prebuilt mesa-virgl.tar.gz archive (default: {DEFAULT_MESA_TAR})')
+    ap.add_argument('--mesa-out', default=None, help='WSL path to custom Mesa build output directory')
     ap.add_argument('--vendor-tree', default=DEFAULT_VEND, help=f'WSL path to unpacked vendor tree (default: {DEFAULT_VEND})')
     ap.add_argument('--stage-dir', default=DEFAULT_STAGE, help=f'WSL staging directory (default: {DEFAULT_STAGE})')
     ap.add_argument('--ndk-strip', default=DEFAULT_NDK_STRIP, help='WSL path to Android NDK llvm-strip')
@@ -123,7 +140,7 @@ def main() -> int:
     pi.BUILD.mkdir(parents=True, exist_ok=True)
     if not args.skip_erofs:
         print(f'[1/2] Building vendor EROFS with Mesa VirGL in WSL ({args.wsl_distro})...')
-        build_erofs(erofs, raw, args.wsl_distro, args.mesa_out, args.vendor_tree, args.stage_dir, args.ndk_strip)
+        build_erofs(erofs, raw, args.wsl_distro, args.mesa_tar, args.mesa_out, args.vendor_tree, args.stage_dir, args.ndk_strip)
     elif not erofs.is_file():
         print(f'Error: {erofs} not found; omit --skip-erofs to build it in WSL first.', file=sys.stderr)
         return 1

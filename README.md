@@ -66,6 +66,14 @@ Previous community efforts (such as `gbrunch` and `gbos-vm`) were either restric
 
 
 
+6. **Hardware 3D GPU Acceleration (Mesa VirGL + `virtio-gpu-gl-pci`)**:
+
+   * *The Problem:* Stock Android desktop relies on software SwiftShader rendering on the CPU, consuming significant CPU resources.
+   * *The Fix:* Precompiled Mesa VirGL Android libraries (`libgallium_dri.so`, `libEGL_mesa.so`, `libGLESv2_mesa.so`) translate guest OpenGL ES 3.2 calls to the Windows host GPU via QEMU SDL VirGL passthrough.
+   * *Performance:* Provides silky-smooth 60 FPS hardware acceleration on modern AMD Radeon (integrated & discrete), Intel Iris/Arc, and NVIDIA GPUs. Launches effortlessly with `.\Start-Googlebook-VirGL.bat`.
+
+
+
 ---
 
 
@@ -148,13 +156,17 @@ The automated script will:
 
 ### Step 3: Launch Googlebook OS!
 
-Double-click `Start-Googlebook.bat` or run:
+* **With Hardware 3D GPU Acceleration (Recommended):**
+  Double-click `Start-Googlebook-VirGL.bat` or run:
+  ```powershell
+  .\Start-Googlebook-VirGL.bat
+  ```
 
-```powershell
-
-.\Start-Googlebook.bat
-
-```
+* **With Software CPU Rendering:**
+  Double-click `Start-Googlebook.bat` or run:
+  ```powershell
+  .\Start-Googlebook.bat
+  ```
 
 
 

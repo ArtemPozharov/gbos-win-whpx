@@ -235,12 +235,25 @@ if (-not (Test-Path "prepared\userdata.qcow2") -and (Test-Path "prepared\base.qc
     }
 }
 
+# Optional VirGL GPU acceleration overlay
+$hasWsl = (Get-Command "wsl.exe" -ErrorAction SilentlyContinue) -ne $null
+if ($hasWsl -and -not (Test-Path "prepared\base-virgl.qcow2")) {
+    Write-Host "   WSL detected: pre-building hardware GPU (VirGL) overlay..." -ForegroundColor Gray
+    try {
+        & python "scripts\build_vendor_virgl.py"
+    } catch {
+        Write-Warning "Could not build VirGL overlay during install: $_"
+    }
+}
+
 Write-Host "`n[6/6] Finalizing configuration..." -ForegroundColor Yellow
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "   INSTALLATION COMPLETE! READY TO LAUNCH!                     " -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "To start Googlebook OS, simply run:" -ForegroundColor Cyan
+Write-Host "To start Googlebook OS with GPU acceleration (recommended):" -ForegroundColor Cyan
+Write-Host "   .\Start-Googlebook-VirGL.bat" -ForegroundColor Yellow
+Write-Host "or with software CPU rendering:" -ForegroundColor Cyan
 Write-Host "   .\Start-Googlebook.bat" -ForegroundColor Yellow
 Write-Host "or in PowerShell:" -ForegroundColor Cyan
 Write-Host "   .\Start-Googlebook.ps1" -ForegroundColor Yellow

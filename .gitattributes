@@ -1,3 +1,4 @@
 *.ko binary
 *.zlib binary
+*.tar.gz binary
 patches/avx_vnni/preinit binary
