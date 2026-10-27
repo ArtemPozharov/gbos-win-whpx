@@ -54,6 +54,12 @@ def build_erofs(
     stage: str,
     ndk_strip: str,
 ) -> None:
+    vendor_stock = pi.BUILD / 'vendor-stock.erofs'
+    if not vendor_stock.is_file():
+        print('      Reconstructing patched vendor EROFS from recovery raw...')
+        vendor_stock.write_bytes(pi.reconstruct_vendor_erofs_bytes(raw))
+    q_stock = shlex.quote(win_to_wsl(vendor_stock))
+
     system_off = pi.find_super_subpartition_offset(raw, 'system_a')
     q_mesa = shlex.quote(mesa_out)
     q_vend = shlex.quote(vend)
@@ -69,9 +75,15 @@ def build_erofs(
         for src, dst in MESA_LIBS
     )
     script = f'''
-if [ ! -d {q_mesa} ] || [ ! -d {q_vend} ]; then
-  echo "Missing WSL prerequisites: expected Mesa Android build at {mesa_out} and vendor tree at {vend}" >&2
+if [ ! -d {q_mesa} ]; then
+  echo "Missing WSL prerequisites: expected Mesa Android build at {mesa_out}" >&2
   exit 2
+fi
+if [ ! -d {q_vend} ] || [ ! -f {q_vend}/build.prop ]; then
+  echo "Unpacking vendor tree from {q_stock} to {vend} in WSL..."
+  rm -rf {q_vend}
+  mkdir -p {q_vend}
+  fsck.erofs --extract={q_vend} {q_stock} >/dev/null
 fi
 # vendor_file_contexts alone leaves most files unlabeled; the vendor_file default rule lives in plat_file_contexts.
 rm -rf /root/plat_fc
