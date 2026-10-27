@@ -186,9 +186,15 @@ The Python launcher (`launcher/launch_googlebook.py`) supports full customizatio
 
 ```powershell
 
-# Run with 12 GB RAM and 8 CPU threads in a window
+# Run with 12 GB RAM and 8 CPU threads (windowed by default)
 
-python launcher/launch_googlebook.py --memory-mb 12288 --cpus 8 --no-fullscreen
+python launcher/launch_googlebook.py --memory-mb 12288 --cpus 8
+
+
+
+# Start in fullscreen
+
+python launcher/launch_googlebook.py --fullscreen
 
 
 
@@ -201,6 +207,32 @@ python launcher/launch_googlebook.py --resolution 1600x1000
 # Run in disposable mode (all disk changes discarded on exit)
 
 python launcher/launch_googlebook.py --ephemeral
+
+```
+
+
+### Host GPU rendering (experimental, VirGL)
+
+By default the guest renders GLES on the CPU (SwiftShader). `--gpu virgl` renders GLES on your host GPU through Mesa VirGL (Vulkan stays on SwiftShader).
+It needs a VirGL vendor image, built once in WSL (Ubuntu with the Mesa 26.1.3 Android build at `/root/build` and the vendor tree at `/root/vend`):
+
+```powershell
+
+# Build build/vendor-virgl.erofs and prepared/base-virgl.qcow2
+
+python scripts/build_vendor_virgl.py
+
+
+
+# Only rebuild the overlay from an existing build/vendor-virgl.erofs (no WSL needed)
+
+python scripts/prepare_image.py --virgl
+
+
+
+# Launch with the host GPU (uses its own userdata-virgl.qcow2; needs the sdl or gtk display)
+
+python launcher/launch_googlebook.py --gpu virgl
 
 ```
 
@@ -244,7 +276,9 @@ gbos-win-whpx/
 
 └── scripts/
 
-    └── prepare_image.py      # Recovery unpacker and base disk builder
+    ├── prepare_image.py      # Recovery unpacker and base disk builder
+
+    └── build_vendor_virgl.py # Optional VirGL (host GPU) vendor image builder
 
 ```
 

@@ -19,6 +19,11 @@ if exist "prepared\userdata.qcow2" (
     echo Userdata deleted successfully.
 )
 
+if exist "prepared\userdata-virgl.qcow2" (
+    del /f /q "prepared\userdata-virgl.qcow2"
+    echo VirGL userdata deleted successfully.
+)
+
 if exist "qemu\qemu-img.exe" (
     "qemu\qemu-img.exe" create -f qcow2 -F qcow2 -b "base.qcow2" "prepared\userdata.qcow2"
     echo Fresh userdata.qcow2 created from base.qcow2!

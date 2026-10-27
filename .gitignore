@@ -22,5 +22,6 @@ __pycache__/
 # Temporary and editor files
 .idea/
 .vscode/
+CLAUDE.md
 *.swp
 *.bak
