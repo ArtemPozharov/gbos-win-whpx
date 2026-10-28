@@ -225,8 +225,9 @@ python launcher/launch_googlebook.py --ephemeral
 
 ### Host GPU rendering (experimental, VirGL)
 
-By default the guest renders GLES on the CPU (SwiftShader). `--gpu virgl` renders GLES on your host GPU through Mesa VirGL (Vulkan stays on SwiftShader).
-It needs a VirGL vendor image, built once in WSL (Ubuntu with the Mesa 26.1.3 Android build at `/root/build` and the vendor tree at `/root/vend`):
+By default the guest renders GLES on the CPU (SwiftShader). `--gpu virgl` renders GLES on your host GPU through Mesa VirGL.
+In VirGL mode the CPU Vulkan drivers are removed, so Chrome (and Chrome-based apps such as YouTube and Gmail) render through VirGL GLES too.
+It needs a VirGL vendor image, built once in WSL. Any Ubuntu/Debian distro works and is detected automatically (`Ubuntu`, `Ubuntu-24.04`, `Ubuntu-26.04`, `Debian`, ...); pass `--wsl-distro <name>` to override:
 
 ```powershell
 

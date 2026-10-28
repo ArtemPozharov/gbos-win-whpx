@@ -345,8 +345,10 @@ def write_virgl_overlay(recovery_raw: pathlib.Path, erofs: pathlib.Path, base: p
     """Write a qcow2 overlay of base that replaces the GBVENDOR partition with a Mesa VirGL vendor EROFS."""
     mib = 1048576
     # GBVENDOR sits right after GBRUNCH, which starts at the 1 MiB-aligned end of the recovery raw.
-    compat_size = len(zlib.decompress((ASSETS / 'compat-vm.ext4.zlib').read_bytes()))
-    vendor_off = (recovery_raw.stat().st_size + mib - 1) // mib * mib + (compat_size + mib - 1) // mib * mib
+    compat_bytes = zlib.decompress((ASSETS / 'compat-vm.ext4.zlib').read_bytes())
+    compat_size = len(compat_bytes)
+    compat_off = (recovery_raw.stat().st_size + mib - 1) // mib * mib
+    vendor_off = compat_off + (compat_size + mib - 1) // mib * mib
     part_size = (len(reconstruct_vendor_erofs_bytes(recovery_raw)) + mib - 1) // mib * mib
     new_size = erofs.stat().st_size
     if new_size > part_size:
@@ -359,7 +361,9 @@ def write_virgl_overlay(recovery_raw: pathlib.Path, erofs: pathlib.Path, base: p
         raise ValueError(f"{base} is not a qcow2 image")
     virtual_size = struct.unpack_from('>Q', hdr, 24)[0]
     padded = erofs.read_bytes().ljust(part_size, b'\0')
-    write_qcow2_backed(overlay, base.name, virtual_size, [(vendor_off, padded)], base, backing_format='qcow2')
+    # Also refresh GBRUNCH (/oem) so the overlay picks up the current compat image even on an older base.qcow2.
+    writes = [(compat_off, compat_bytes), (vendor_off, padded)]
+    write_qcow2_backed(overlay, base.name, virtual_size, writes, base, backing_format='qcow2')
 
 
 def prepare_virgl() -> int:
@@ -498,6 +502,11 @@ def main() -> int:
 
     # 4. Assemble prepared/base.qcow2
     base_disk = PREPARED / 'base.qcow2'
+    compat_sha = hashlib.sha256((ASSETS / 'compat-vm.ext4.zlib').read_bytes()).hexdigest()
+    if base_disk.is_file() and existing_spec.get('compat_sha256') != compat_sha:
+        # The partition layout is identical, so userdata.qcow2 (backed by base.qcow2) stays valid.
+        print("[4/5] assets/compat-vm.ext4.zlib changed; rebuilding prepared/base.qcow2 (user data is kept)...")
+        base_disk.unlink()
     if not base_disk.is_file():
         print("[4/5] Reconstructing GBRUNCH and GBVENDOR partitions...")
         compat_bytes = zlib.decompress((ASSETS / 'compat-vm.ext4.zlib').read_bytes())
@@ -586,6 +595,7 @@ def main() -> int:
     # Update vm.json hashes
     spec = json.loads(target_manifest.read_text(encoding='utf-8'))
     spec['isa_patch_sha256'] = isa_sha
+    spec['compat_sha256'] = compat_sha
     spec['assets']['kernel']['sha256'] = hashlib.sha256(kernel_out.read_bytes()).hexdigest()
     spec['assets']['initrd']['sha256'] = hashlib.sha256(initrd_out.read_bytes()).hexdigest()
     spec['assets']['cmdline']['sha256'] = hashlib.sha256(target_cmdline.read_bytes()).hexdigest()

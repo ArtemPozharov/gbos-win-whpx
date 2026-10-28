@@ -235,12 +235,13 @@ if (-not (Test-Path "prepared\userdata.qcow2") -and (Test-Path "prepared\base.qc
     }
 }
 
-# Optional VirGL GPU acceleration overlay
+# Optional VirGL GPU acceleration overlay (built or refreshed if its recipe is outdated)
 $hasWsl = (Get-Command "wsl.exe" -ErrorAction SilentlyContinue) -ne $null
-if ($hasWsl -and -not (Test-Path "prepared\base-virgl.qcow2")) {
-    Write-Host "   WSL detected: pre-building hardware GPU (VirGL) overlay..." -ForegroundColor Gray
+if ($hasWsl) {
+    Write-Host "   WSL detected: building/refreshing hardware GPU (VirGL) overlay..." -ForegroundColor Gray
     try {
-        & python "scripts\build_vendor_virgl.py"
+        & python "scripts\build_vendor_virgl.py" --if-outdated
+        if ($LASTEXITCODE -ne 0) { Write-Warning "VirGL overlay build failed; software rendering still works." }
     } catch {
         Write-Warning "Could not build VirGL overlay during install: $_"
     }
