@@ -30,7 +30,8 @@ MESA_LIBS = [
 
 # Bump when the vendor-virgl recipe changes so install.ps1 rebuilds stale overlays.
 # 2: no CPU Vulkan/ANGLE (fixes blank Chrome/YouTube/Gmail), Bluetooth disabled.
-VIRGL_RECIPE = 2
+# 3: bundled plat_file_contexts.zlib (fixes Ubuntu 24.04 fsck.erofs --offset), SetupWizard partner provider kept.
+VIRGL_RECIPE = 3
 
 # Utility distros that cannot run apt-get / mkfs.erofs.
 _SKIP_DISTROS = ('docker-desktop', 'rancher-desktop', 'podman')
@@ -117,6 +118,8 @@ def build_erofs(
     q_stock = shlex.quote(win_to_wsl(vendor_stock))
 
     system_off = pi.find_super_subpartition_offset(raw, 'system_a')
+    plat_fc_zlib = pi.ASSETS / 'plat_file_contexts.zlib'
+    q_plat_fc_zlib = shlex.quote(win_to_wsl(plat_fc_zlib)) if plat_fc_zlib.is_file() else "''"
     q_vend = shlex.quote(vend)
     q_stage = shlex.quote(stage)
     q_raw = shlex.quote(win_to_wsl(raw))
@@ -157,7 +160,15 @@ if [ ! -d {q_vend} ] || [ ! -f {q_vend}/build.prop ]; then
 fi
 # vendor_file_contexts alone leaves most files unlabeled; the vendor_file default rule lives in plat_file_contexts.
 rm -rf /root/plat_fc
-fsck.erofs --offset={system_off} --extract=/root/plat_fc --path=/system/etc/selinux/plat_file_contexts {q_raw} >/dev/null
+if [ -n {q_plat_fc_zlib} ] && [ -f {q_plat_fc_zlib} ]; then
+  python3 -c "import zlib; open('/root/plat_fc', 'wb').write(zlib.decompress(open('{q_plat_fc_zlib}', 'rb').read()))"
+elif fsck.erofs --help 2>&1 | grep -q -- '--offset'; then
+  fsck.erofs --offset={system_off} --extract=/root/plat_fc --path=/system/etc/selinux/plat_file_contexts {q_raw} >/dev/null
+else
+  LOOPDEV=$(losetup -f -r -o {system_off} {q_raw} --show)
+  fsck.erofs --extract=/root/plat_fc --path=/system/etc/selinux/plat_file_contexts "$LOOPDEV" >/dev/null
+  losetup -d "$LOOPDEV"
+fi
 cat /root/plat_fc {q_vend}/etc/selinux/vendor_file_contexts > /root/file_contexts.all
 rm -rf {q_stage}
 cp -a {q_vend} {q_stage}

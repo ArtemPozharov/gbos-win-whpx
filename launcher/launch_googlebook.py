@@ -308,12 +308,11 @@ def main() -> int:
         # Separate overlay chain: userdata is backed by the VirGL vendor image, so it must not be shared with the stock one.
         base_disk = base_disk.with_name('base-virgl.qcow2')
         userdata = manifest_path.parent / 'userdata-virgl.qcow2'
-        if not base_disk.is_file() and not args.dry_run:
-            print(f'  [gpu] {base_disk.name} not found; auto-building VirGL vendor overlay...')
+        if not args.dry_run:
             build_script = ROOT / 'scripts' / 'build_vendor_virgl.py'
-            r = subprocess.run([sys.executable, str(build_script)])
+            r = subprocess.run([sys.executable, str(build_script), '--if-outdated'])
             if r.returncode != 0 or not base_disk.is_file():
-                parser.error(f'{base_disk} not found and auto-build failed; see output above.')
+                parser.error(f'{base_disk} build failed; see output above.')
     if args.ephemeral:
         disk = base_disk
         drive_spec = f'if=none,id=os,format=qcow2,file={str(disk).replace(",", ",,")},snapshot=on'
