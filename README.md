@@ -74,6 +74,16 @@ Previous community efforts (such as `gbrunch` and `gbos-vm`) were either restric
 
 
 
+7. **High-Speed Networking & Out-of-the-Box ADB over TCP (`localhost:5555`)**:
+
+   * *The Problem:* The OEM vendor image includes a watchdog service (`adbd_killer_init`) that blocks or kills network ADB sockets, and QEMU's default Windows user-mode SLIRP DNS proxy caused high latency on Chrome and Play Store downloads.
+   * *The Fix:* Injected `ro.vendor.adbd.unsafe=1` and `service.adb.tcp.port=5555` to permanently unblock network debugging, pre-enabled Developer Options in Settings, routed user-mode networking with high-performance Google DNS (`8.8.8.8`), and automatically forwarded host port `5555` directly to the VM. You can connect instantly from Windows with:
+     ```cmd
+     adb connect localhost:5555
+     ```
+
+
+
 ---
 
 
@@ -182,6 +192,7 @@ The automated script will:
 | **Release Mouse** | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>G</kbd> |
 | **Toggle Full Screen** | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>F</kbd> |
 | **Switch Keyboard Language** | <kbd>Ctrl</kbd> + <kbd>Space</kbd> or <kbd>Win</kbd> + <kbd>Space</kbd> inside Android |
+| **Connect ADB from Windows** | `adb connect localhost:5555` |
 | **Factory Reset / Wipe Data** | Run `.\Reset-Data.bat` (wipes `userdata.qcow2`, keeps system intact) |
 
 ---

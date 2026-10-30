@@ -289,6 +289,10 @@ def main() -> int:
                              'needs prepared/base-virgl.qcow2, see scripts/build_vendor_virgl.py)')
     parser.add_argument('--ephemeral', action='store_true', help='Discard writes when VM closes')
     parser.add_argument('--offline', action='store_true', help='Disable user-mode NAT networking')
+    parser.add_argument('--dns', default='8.8.8.8',
+                        help='DNS server for guest user networking (default: 8.8.8.8 for fast browsing & Play Store)')
+    parser.add_argument('--adb-port', type=int, default=5555,
+                        help='Host port forwarded to guest ADB over TCP (default: 5555; pass 0 to disable)')
     parser.add_argument('--no-audio', action='store_true', help='Disable DirectSound USB audio')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
@@ -363,8 +367,13 @@ def main() -> int:
     if args.offline:
         cmd += ['-nic', 'none']
     else:
+        netdev_parts = ['user', 'id=net0', 'ipv6=off']
+        if args.dns:
+            netdev_parts.append(f'dns={args.dns}')
+        if args.adb_port and args.adb_port > 0:
+            netdev_parts.append(f'hostfwd=tcp::{args.adb_port}-:5555')
         cmd += [
-            '-netdev', 'user,id=net0,ipv6=off',
+            '-netdev', ','.join(netdev_parts),
             '-device', 'virtio-net-pci,netdev=net0',
         ]
 
@@ -402,6 +411,8 @@ def main() -> int:
     print(f'  Resolution : {width}x{height} ({"fullscreen" if args.fullscreen else "windowed"})')
     print(f'  RAM / CPUs : {args.memory_mb} MiB / {args.cpus} vCPUs (50% host auto)')
     print(f'  User data  : {disk}')
+    if not args.offline and args.adb_port and args.adb_port > 0:
+        print(f'  ADB TCP    : localhost:{args.adb_port} -> guest:5555 (adb connect localhost:{args.adb_port})')
     print(f'  Session log: {session}')
     print('  Controls   : Click inside window to capture mouse')
     print('               Press Ctrl+Alt+G to release mouse cursor')

@@ -31,7 +31,8 @@ MESA_LIBS = [
 # Bump when the vendor-virgl recipe changes so install.ps1 rebuilds stale overlays.
 # 2: no CPU Vulkan/ANGLE (fixes blank Chrome/YouTube/Gmail), Bluetooth disabled.
 # 3: bundled plat_file_contexts.zlib (fixes Ubuntu 24.04 fsck.erofs --offset), SetupWizard partner provider kept.
-VIRGL_RECIPE = 3
+# 4: unblock ADB over TCP (ro.vendor.adbd.unsafe=1) & enable fast DNS.
+VIRGL_RECIPE = 4
 
 # Utility distros that cannot run apt-get / mkfs.erofs.
 _SKIP_DISTROS = ('docker-desktop', 'rancher-desktop', 'podman')
