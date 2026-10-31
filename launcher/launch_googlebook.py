@@ -289,8 +289,8 @@ def main() -> int:
                              'needs prepared/base-virgl.qcow2, see scripts/build_vendor_virgl.py)')
     parser.add_argument('--ephemeral', action='store_true', help='Discard writes when VM closes')
     parser.add_argument('--offline', action='store_true', help='Disable user-mode NAT networking')
-    parser.add_argument('--dns', default='8.8.8.8',
-                        help='DNS server for guest user networking (default: 8.8.8.8 for fast browsing & Play Store)')
+    parser.add_argument('--dns', default=None,
+                        help='Custom virtual DNS IP in QEMU SLIRP (default: None, uses host DNS proxy)')
     parser.add_argument('--adb-port', type=int, default=5555,
                         help='Host port forwarded to guest ADB over TCP (default: 5555; pass 0 to disable)')
     parser.add_argument('--no-audio', action='store_true', help='Disable DirectSound USB audio')

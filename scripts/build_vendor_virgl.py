@@ -32,7 +32,8 @@ MESA_LIBS = [
 # 2: no CPU Vulkan/ANGLE (fixes blank Chrome/YouTube/Gmail), Bluetooth disabled.
 # 3: bundled plat_file_contexts.zlib (fixes Ubuntu 24.04 fsck.erofs --offset), SetupWizard partner provider kept.
 # 4: unblock ADB over TCP (ro.vendor.adbd.unsafe=1) & enable fast DNS.
-VIRGL_RECIPE = 4
+# 5: fix Settings Bluetooth NPE crash by keeping BluetoothAdapter non-null.
+VIRGL_RECIPE = 5
 
 # Utility distros that cannot run apt-get / mkfs.erofs.
 _SKIP_DISTROS = ('docker-desktop', 'rancher-desktop', 'podman')
